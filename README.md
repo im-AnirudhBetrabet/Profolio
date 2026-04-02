@@ -33,7 +33,7 @@ Kite Connect is Zerodha's developer API suite. *Note: Zerodha charges a monthly 
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/yourusername/profolio.git](https://github.com/yourusername/profolio.git)
+git clone https://github.com/im-AnirudhBetrabet/Profolio.git
 cd profolio
 ```
 
