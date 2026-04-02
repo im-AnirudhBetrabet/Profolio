@@ -31,8 +31,6 @@ apply_custom_css()
 
 st.title("💠 ProFolio Command Center")
 
-# 2. Data Initialization
-raw_stocks = load_cached_portfolio()
 
 # 3. Sidebar Authentication & Controls
 import os
@@ -43,75 +41,139 @@ CRED_FILE = "credentials.json"
 
 # Helper function to load credentials
 def load_creds():
+    """Loads all saved broker credentials from the JSON file."""
     if os.path.exists(CRED_FILE):
-        with open(CRED_FILE, "r") as f:
-            return json.load(f)
-    return None
+        try:
+            with open(CRED_FILE, "r") as f:
+                c = json.load(f)
+                # Backward-compatibility: If it's the old single-broker format, wrap it
+                if "broker" in c:
+                    broker_name = c.pop("broker")
+                    return {broker_name: c}
+
+                # If it's the very first legacy format (no broker key)
+                if "api_key" in c and "broker" not in c and "Zerodha" not in c:
+                    return {"Zerodha": c}
+
+                return c
+        except json.JSONDecodeError:
+            return {}
+    return {}
 
 
 with st.sidebar:
     st.header("⚙️ Settings & Sync")
 
-    # 1. Check if we already have the API keys saved
-    creds = load_creds()
+    # --- 1. Broker Selection ---
+    selected_broker = st.radio("Select Broker API:", ["Zerodha", "Groww"], horizontal=True)
+    st.divider()
+
+    # Load the master dictionary of all credentials
+    all_creds = load_creds()
+
+    # Extract credentials just for the currently selected broker
+    active_creds = all_creds.get(selected_broker)
+
+    raw_stocks = load_cached_portfolio(selected_broker)
 
     if raw_stocks is None:
-        st.warning("Not Connected")
+        st.warning(f"Not Connected to {selected_broker}")
 
-        # 2. If no credentials exist, ask the user to save them FIRST
-        if creds is None:
-            st.write("Step 1: Save your Zerodha API credentials.")
-            api_key_input = st.text_input("API Key", type="password")
-            api_secret_input = st.text_input("API Secret", type="password")
+        # Step 1: No credentials exist for the selected broker
+        if active_creds is None:
+            st.write(f"Step 1: Save your {selected_broker} credentials.")
 
-            if st.button("Save Credentials", width='stretch'):
-                with open(CRED_FILE, "w") as f:
-                    json.dump({"api_key": api_key_input, "api_secret": api_secret_input}, f)
-                st.success("Saved! Refreshing...")
-                st.rerun()
+            if selected_broker == "Zerodha":
+                api_key_input = st.text_input("API Key", type="password", key="z_key")
+                api_secret_input = st.text_input("API Secret", type="password", key="z_sec")
 
+                if st.button("Save Credentials", width='stretch'):
+                    all_creds["Zerodha"] = {"api_key": api_key_input, "api_secret": api_secret_input}
+                    with open(CRED_FILE, "w") as f:
+                        json.dump(all_creds, f)
+                    st.success("Saved! Refreshing...")
+                    st.rerun()
+
+            elif selected_broker == "Groww":
+                groww_api_key = st.text_input("Groww API Key", type="password", key="g_key")
+                groww_api_secret = st.text_input("Groww API Secret", type="password", key="g_sec")
+
+                if st.button("Save Credentials", width='stretch'):
+                    all_creds["Groww"] = {"api_key": groww_api_key, "api_secret": groww_api_secret}
+                    with open(CRED_FILE, "w") as f:
+                        json.dump(all_creds, f)
+                    st.success("Saved! Refreshing...")
+                    st.rerun()
         # 3. If credentials exist, proceed with the seamless login flow
         else:
-            api_key = creds["api_key"]
-            api_secret = creds["api_secret"]
-            kite = KiteConnect(api_key=api_key)
-            login_url = kite.login_url()
+            # --- ZERODHA FLOW ---
+            if selected_broker == "Zerodha":
+                api_key = active_creds["api_key"]
+                api_secret = active_creds["api_secret"]
+                kite = KiteConnect(api_key=api_key)
+                login_url = kite.login_url()
 
-            st.write("Step 2: Authenticate with Zerodha.")
-            st.markdown(f"**[👉 Click Here to Log In]({login_url})**")
+                st.write("Step 2: Authenticate with Zerodha.")
+                st.markdown(f"**[👉 Click Here to Log In]({login_url})**")
 
-            # --- The Magic URL Catcher ---
-            query_params = st.query_params
+                query_params = st.query_params
 
-            if "request_token" in query_params:
-                request_token = query_params["request_token"]
+                if "request_token" in query_params:
+                    request_token = query_params["request_token"]
+                    with premium_spinner("Authenticating with Zerodha..."):
+                        try:
+                            data = kite.generate_session(request_token, api_secret=api_secret)
+                            kite.set_access_token(data["access_token"])
+                            real_holdings = kite.holdings()
 
-                with premium_spinner("Token caught! Syncing portfolio..."):
-                    try:
-                        data = kite.generate_session(request_token, api_secret=api_secret)
-                        kite.set_access_token(data["access_token"])
+                            formatted_data = []
+                            for item in real_holdings:
+                                formatted_data.append({
+                                    "ticker": item['tradingsymbol'],
+                                    "qty": item['quantity'],
+                                    "avg_price": item['average_price']
+                                })
 
-                        real_holdings = kite.holdings()
+                            # Optional: You could save broker info in the cache if needed later
+                            save_portfolio(selected_broker, formatted_data)
+                            st.query_params.clear()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Sync Failed: {e}")
 
-                        formatted_data = []
-                        for item in real_holdings:
-                            formatted_data.append({
-                                "ticker": item['tradingsymbol'],
-                                "qty": item['quantity'],
-                                "avg_price": item['average_price']
-                            })
-                        save_portfolio(formatted_data)
+            # --- GROWW FLOW ---
+            elif selected_broker == "Groww":
+                st.write("Step 2: Sync Groww Data.")
 
-                        st.query_params.clear()
-                        st.success("Successfully synced!")
-                        st.rerun()
+                if st.button("Sync Live Holdings", type="primary", width='stretch'):
+                    with premium_spinner("Fetching from Groww Cloud..."):
+                        try:
+                            from growwapi import GrowwAPI
+                            import pyotp
 
-                    except Exception as e:
-                        st.error(f"Sync Failed: {e}")
+                            access_token = GrowwAPI.get_access_token(api_key=active_creds["api_key"], secret=active_creds["api_secret"])
+                            # Using the specific Groww keys from active_creds
+                            groww = GrowwAPI(access_token)
 
-            # Option to reset credentials if you typed them wrong
-            if st.button("Reset Credentials", type="secondary", width='stretch'):
-                os.remove(CRED_FILE)
+                            real_holdings = groww.get_holdings_for_user()
+                            print(real_holdings)
+                            formatted_data = []
+                            for item in real_holdings.get("holdings"):
+                                formatted_data.append({
+                                    "ticker": item['trading_symbol'],
+                                    "qty": item['quantity'],
+                                    "avg_price": item['average_price']
+                                })
+                            save_portfolio(selected_broker, formatted_data)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Sync Failed. Check token. Details: {e}")
+
+            # Option to reset credentials ONLY for the active broker
+            if st.button(f"Reset {selected_broker} Credentials", type="secondary", width='stretch'):
+                all_creds.pop(selected_broker, None)
+                with open(CRED_FILE, "w") as f:
+                    json.dump(all_creds, f)
                 st.rerun()
 
     else:
@@ -120,14 +182,48 @@ with st.sidebar:
             st.cache_data.clear()
             st.rerun()
 
-        if st.button("⚠️ Disconnect Data", type="primary", width='stretch'):
+        if st.button(f"⚠️ Disconnect {selected_broker}", type="primary", width='stretch'):
+
+            # 1. Selectively delete from the portfolio cache
             if os.path.exists("saved_portfolio.json"):
-                os.remove("saved_portfolio.json")
+                try:
+                    with open("saved_portfolio.json", "r") as f:
+                        port_data = json.load(f)
+                    if isinstance(port_data, dict):
+                        port_data.pop(selected_broker, None)
+                        with open("saved_portfolio.json", "w") as f:
+                            json.dump(port_data, f)
+                except json.JSONDecodeError:
+                    pass
+
+            # 2. Selectively delete from the credentials cache
+            if os.path.exists(CRED_FILE):
+                try:
+                    with open(CRED_FILE, "r") as f:
+                        cred_data = json.load(f)
+                    if isinstance(cred_data, dict):
+                        cred_data.pop(selected_broker, None)
+                        with open(CRED_FILE, "w") as f:
+                            json.dump(cred_data, f)
+                except json.JSONDecodeError:
+                    pass
+
+            # Clear Streamlit's in-memory cache and reload
+            st.cache_data.clear()
             st.rerun()
 
 # 4. Main App Routing
 if raw_stocks is None:
     st.info("👈 Please sync your broker account in the sidebar to view your dashboard.")
+elif len(raw_stocks) == 0:
+    # --- THE PREMIUM EMPTY STATE ---
+    st.markdown("""
+    <div style="text-align: center; padding: 5rem 2rem; background: rgba(255,255,255,0.02); backdrop-filter: blur(10px); border-radius: 1rem; border: 1px solid rgba(255,255,255,0.05); margin-top: 2rem;">
+        <h2 style="color: #E2E8F0; margin-bottom: 1rem;">🌱 Your Portfolio is a Blank Canvas</h2>
+        <p style="color: #9CA3AF; font-size: 1.1rem; margin-bottom: 0.5rem;">It looks like you don't have any active holdings in your linked broker account yet.</p>
+        <p style="color: #9CA3AF; font-size: 1.1rem;">Once you make your first investment, hit the <b>Sync</b> button in the sidebar to watch your dashboard come to life.</p>
+    </div>
+    """, unsafe_allow_html=True)
 else:
     # Process the data
     with premium_spinner("Fetching live market data..."):
@@ -236,7 +332,6 @@ else:
                 font=dict(color='#E2E8F0')
             )
             st.plotly_chart(fig_gauge, width='stretch')
-            st.caption("Current baseline. Ready for ML model integration.")
 
     with tab2:
         st.subheader("Holdings Detail")

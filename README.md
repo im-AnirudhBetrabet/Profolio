@@ -18,7 +18,8 @@ Designed with an extensible architecture, ProFolio is built not just as a visual
 To run this application, you will need an active Zerodha account and access to the Kite Connect API.
 
 ### 1. Acquiring Your API Credentials
-Kite Connect is Zerodha's developer API suite. *Note: Zerodha charges a monthly fee (currently ₹2000/month) for API access.*
+#### Option A: Zerodha (Kite Connect) Setup
+Kite Connect is Zerodha's developer API suite.
 
 1. Go to the [Kite Connect Developer Portal](https://developers.kite.trade/) and sign up or log in.
 2. Click on **Create New App**.
@@ -27,6 +28,11 @@ Kite Connect is Zerodha's developer API suite. *Note: Zerodha charges a monthly 
    * *Why?* Streamlit runs on port 8501 by default. ProFolio is designed to catch the authentication token directly from the URL after you log in. If this is not set correctly, the auto-sync will fail.
 5. Once the app is created, copy your **API Key** and **API Secret**. You will enter these directly into the ProFolio sidebar.
 
+#### Option B: Groww Trading API Setup
+1. Go to the Groww Developer Console or Trading API Portal.
+2. Generate a new set of API credentials for your account.
+3. Ensure you copy both the **API Key** and the **API Secret**. 
+4. You will enter these into the ProFolio sidebar under the Groww tab. The app handles the cryptographic signature and session generation automatically.
 ---
 
 ## 🚀 Installation & Local Setup

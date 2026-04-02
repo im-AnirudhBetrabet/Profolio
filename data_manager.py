@@ -6,18 +6,44 @@ import pandas as pd
 CACHE_FILE = "saved_portfolio.json"
 
 
-def load_cached_portfolio():
-    """Reads the saved portfolio from the local JSON file."""
+def load_cached_portfolio(broker_name):
+    """Reads the saved portfolio from the local JSON file for a specific broker."""
     if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE, "r") as file:
-            return json.load(file)
+        try:
+            with open(CACHE_FILE, "r") as file:
+                data = json.load(file)
+
+                # Backward compatibility: If the file is still the old flat list
+                if isinstance(data, list):
+                    return data if broker_name == "Zerodha" else None
+
+                # Return the specific broker's data, or None if they haven't synced yet
+                return data.get(broker_name)
+        except json.JSONDecodeError:
+            return None
     return None
 
 
-def save_portfolio(data):
-    """Saves the raw Zerodha data to the JSON file."""
+def save_portfolio(broker_name, broker_data):
+    """Saves the normalized broker data into the specific broker's bucket."""
+    all_data = {}
+
+    # First, load existing data so we don't overwrite the other broker
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, "r") as file:
+                existing_data = json.load(file)
+                if isinstance(existing_data, dict):
+                    all_data = existing_data
+        except json.JSONDecodeError:
+            pass
+
+    # Inject the new data for the active broker
+    all_data[broker_name] = broker_data
+
+    # Save the entire dictionary back to the file
     with open(CACHE_FILE, "w") as file:
-        json.dump(data, file)
+        json.dump(all_data, file)
 
 
 def process_live_data(raw_stocks):
